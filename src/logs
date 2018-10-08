@@ -1,0 +1,129 @@
+gcc  -std=gnu99 -I. -I../include   -I/usr/local/include   -g -O0   -Wall -c socket.c -o socket.o
+socket.c: In function ‘io_read_callback’:
+socket.c:25:2: warning: implicit declaration of function ‘read’ [-Wimplicit-function-declaration]
+  bytes_read = read(fd, buffer, MAX_BUF_SIZE);
+  ^
+gcc  -std=gnu99 -I. -I../include   -I/usr/local/include   -g -O0   -Wall -c dbus.c -o dbus.o
+dbus.c: In function ‘hfp_registration_msg_setup’:
+dbus.c:54:2: warning: passing argument 3 of ‘l_dbus_message_builder_append_basic’ makes pointer from integer without a cast [enabled by default]
+  l_dbus_message_builder_append_basic(builder, 'q', PROFILE_CHANNEL);
+  ^
+In file included from /usr/local/include/ell/ell.h:52:0,
+                 from ../include/main.h:13,
+                 from dbus.c:6:
+/usr/local/include/ell/dbus.h:183:6: note: expected ‘const void *’ but argument is of type ‘int’
+ bool l_dbus_message_builder_append_basic(struct l_dbus_message_builder *builder,
+      ^
+dbus.c:62:2: warning: passing argument 3 of ‘l_dbus_message_builder_append_basic’ makes pointer from integer without a cast [enabled by default]
+  l_dbus_message_builder_append_basic(builder, 'q', PROFILE_VERSION);
+  ^
+In file included from /usr/local/include/ell/ell.h:52:0,
+                 from ../include/main.h:13,
+                 from dbus.c:6:
+/usr/local/include/ell/dbus.h:183:6: note: expected ‘const void *’ but argument is of type ‘int’
+ bool l_dbus_message_builder_append_basic(struct l_dbus_message_builder *builder,
+      ^
+dbus.c: In function ‘register_hfp_service’:
+dbus.c:93:4: warning: passing argument 4 of ‘l_dbus_proxy_method_call’ from incompatible pointer type [enabled by default]
+    hfp_registration_msg_reply, NULL, NULL);
+    ^
+In file included from /usr/local/include/ell/ell.h:54:0,
+                 from ../include/main.h:13,
+                 from dbus.c:6:
+/usr/local/include/ell/dbus-client.h:87:10: note: expected ‘l_dbus_client_proxy_result_func_t’ but argument is of type ‘void (*)(struct l_dbus_message *, void *)’
+ uint32_t l_dbus_proxy_method_call(struct l_dbus_proxy *proxy,
+          ^
+dbus.c:94:1: warning: no return statement in function returning non-void [-Wreturn-type]
+ }
+ ^
+dbus.c: In function ‘proxy_added’:
+dbus.c:101:14: warning: unused variable ‘path’ [-Wunused-variable]
+  const char *path = l_dbus_proxy_get_path(proxy);
+              ^
+dbus.c: In function ‘proxy_removed’:
+dbus.c:120:14: warning: unused variable ‘interface’ [-Wunused-variable]
+  const char *interface = l_dbus_proxy_get_interface(proxy);
+              ^
+dbus.c:119:14: warning: unused variable ‘path’ [-Wunused-variable]
+  const char *path = l_dbus_proxy_get_path(proxy);
+              ^
+dbus.c: In function ‘property_changed’:
+dbus.c:130:14: warning: unused variable ‘interface’ [-Wunused-variable]
+  const char *interface = l_dbus_proxy_get_interface(proxy);
+              ^
+dbus.c:129:14: warning: unused variable ‘path’ [-Wunused-variable]
+  const char *path = l_dbus_proxy_get_path(proxy);
+              ^
+dbus.c: In function ‘new_connection’:
+dbus.c:183:2: warning: implicit declaration of function ‘new_rfcomm_connection’ [-Wimplicit-function-declaration]
+  new_rfcomm_connection(sock);
+  ^
+dbus.c:183:23: warning: ‘sock’ is used uninitialized in this function [-Wuninitialized]
+  new_rfcomm_connection(sock);
+                       ^
+gcc  -std=gnu99 -I. -I../include   -I/usr/local/include   -g -O0   -Wall -c main.c -o main.o
+gcc  -std=gnu99 -I. -I../include   -I/usr/local/include   -g -O0   -Wall -c at_parser.c -o at_parser.o
+at_parser.c:44:12: warning: declaration does not declare anything [enabled by default]
+  enum cmd_t;
+            ^
+at_parser.c:81:12: error: return type is an incomplete type
+ enum cmd_t str_to_enum_type(const char *cmd)
+            ^
+at_parser.c: In function ‘process_command’:
+at_parser.c:88:7: error: variable ‘cmd_type’ has initializer but incomplete type
+  enum at_cmds cmd_type = str_to_enum_type(cmd);
+       ^
+at_parser.c:88:15: error: storage size of ‘cmd_type’ isn’t known
+  enum at_cmds cmd_type = str_to_enum_type(cmd);
+               ^
+at_parser.c:90:19: error: ‘cmd_handle’ undeclared (first use in this function)
+  int len = sizeof(cmd_handle)/sizeof(cmd_handle[0]);
+                   ^
+at_parser.c:90:19: note: each undeclared identifier is reported only once for each function it appears in
+at_parser.c:88:15: warning: unused variable ‘cmd_type’ [-Wunused-variable]
+  enum at_cmds cmd_type = str_to_enum_type(cmd);
+               ^
+at_parser.c: In function ‘handle_recv_data’:
+at_parser.c:114:2: warning: implicit declaration of function ‘is_valid_command’ [-Wimplicit-function-declaration]
+  if (!is_valid_command(data, bytes_read)) {
+  ^
+at_parser.c:116:3: warning: ‘return’ with a value, in function returning void [enabled by default]
+   return true;
+   ^
+at_parser.c: In function ‘handle_brsf_response’:
+at_parser.c:146:2: warning: passing argument 1 of ‘atoi’ makes pointer from integer without a cast [enabled by default]
+  int features = atoi(cmd[i + 1]);
+  ^
+In file included from ../include/main.h:8:0,
+                 from at_parser.c:7:
+/usr/include/stdlib.h:147:12: note: expected ‘const char *’ but argument is of type ‘char’
+ extern int atoi (const char *__nptr)
+            ^
+at_parser.c: At top level:
+at_parser.c:184:5: error: ‘AT_BRSF’ undeclared here (not in a function)
+   { AT_BRSF = 0,  handle_brsf_cmd },
+     ^
+at_parser.c:184:3: warning: excess elements in struct initializer [enabled by default]
+   { AT_BRSF = 0,  handle_brsf_cmd },
+   ^
+at_parser.c:184:3: warning: (near initialization for ‘cmd_handle[0]’) [enabled by default]
+at_parser.c:185:5: error: ‘BRSF’ undeclared here (not in a function)
+   { BRSF,    handle_brsf_response },
+     ^
+at_parser.c:185:3: warning: excess elements in struct initializer [enabled by default]
+   { BRSF,    handle_brsf_response },
+   ^
+at_parser.c:185:3: warning: (near initialization for ‘cmd_handle[1]’) [enabled by default]
+at_parser.c: In function ‘is_valid_at_command’:
+at_parser.c:74:1: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+at_parser.c: In function ‘send_command’:
+at_parser.c:79:1: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+at_parser.c: In function ‘handle_brsf_response’:
+at_parser.c:173:1: warning: control reaches end of non-void function [-Wreturn-type]
+ }
+ ^
+make: *** [at_parser.o] Error 1

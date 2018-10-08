@@ -1,0 +1,7 @@
+
+
+1. hfp_recorder doesn't start "Service Level Connection establishment (RFCOMM)" procedure.
+   It should be started by AG device.
+   
+2. hfp_recorder doesn't start Synchronous Connection Oriented(SCO) connection. It should
+   be started from AG device. 

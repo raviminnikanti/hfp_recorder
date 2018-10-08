@@ -1,0 +1,7 @@
+
+# ignore all hidden files.
+
+.cproject
+.project
+.settings/*
+

@@ -1,0 +1,2 @@
+
+1. autotools support for the project, for automatic dependency checking and Makefile generation. 

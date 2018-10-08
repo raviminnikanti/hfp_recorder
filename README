@@ -1,0 +1,10 @@
+
+Currently this project is not yet complete. Current version is 0.1.
+
+
+1. hfp_recorder implements Bluetooth HFP profile.
+2. It is a Linux based application and it acts as HF in HFP profile.
+
+
+Dependencies:
+Embedded Linux Library (ELL)
