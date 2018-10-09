@@ -1,12 +1,11 @@
 /*
  * at_parser.c
- * Copyright (C) 2015-2016 Ooma Incorporated. All rights reserved.
  */
 
 
 #include "main.h"
 
-typedef void (*cmd_handler)(const char *cmd, int size);
+typedef void (*cmd_handler)(const char *cmd);
 
 
 #define INRANGE(X, Y, Z)	(X >= Y && X <= Z)
@@ -65,26 +64,17 @@ static inline bool is_escape_character(char c)
 	return false;
 }
 
-bool is_valid_at_command(const char *cmd)
-{
-	const char *tmp = cmd;
-
-	if (cmd == NULL || *cmd == '\0')
-		return false;
-
-	if (cmd[0] == '\r')
-		tmp++;
-	if (cmd[1] == '\n')
-		tmp++;
-
-	if (memcmp(tmp, "AT", 2) == 0)
-		return true;
-
-	return false;
-}
-
+/* arg passed to this function should be string. */
 bool send_command(const char *cmd)
 {
+	char data[MAX_DATA_BUF_SIZE];
+	int i;
+
+	for (i = 0; *cmd != '\0'; i++, cmd++)
+		data[i] = *cmd;
+
+	data[i] = '\r';
+	data[++i] = '\n';
 
 	return true;
 }
@@ -155,7 +145,7 @@ void handle_brsf_response(const char *cmd, int len)
 
 }
 
-void handle_brsf_cmd(const char *cmd, int len)
+void handle_brsf_cmd(const char *cmd)
 {
 	;
 }
@@ -168,7 +158,7 @@ struct cmd_struct cmd_handle[] = {
 		{ BRSF,			handle_brsf_response },
 };
 
-static void process_command(const char *cmd, int size)
+static void process_command(const char *cmd)
 {
 	enum at_cmds cmd_type = str_to_enum_type(cmd);
 
@@ -179,28 +169,63 @@ static void process_command(const char *cmd, int size)
 		return;
 	}
 
-	cmd_handle[cmd_type].handler_callback(cmd, size);
+	cmd_handle[cmd_type].handler_callback(cmd);
 }
 
 void handle_recv_data(char *data, int bytes_read)
 {
-	char cmd[64];
-	int i = 0;
+	char cmd[MAX_DATA_BUF_SIZE];
+	int total_bytes = bytes_read;
 
-	memset(cmd, 0, sizeof(cmd));
 
-	for (i = 0; i < bytes_read; i++) {
-		if (data[i] == '\r' || data[i] == '\n')
-			continue;
+	/* data field may contain multiple commands.
+	 * Each command need to be processed separately.
+	 */
 
-		break;
+	while (total_bytes > 0) {
+		int i, j, k;
+
+		memset(cmd, 0, sizeof(cmd));
+		for (i = 0; i < bytes_read; i++) {
+			if (data[i] == '\r' || data[i] == '\n')
+				continue;
+
+			break;
+		}
+
+		for (j = i, k = 0 ; j < bytes_read ; k++, j++) {
+			if (data[j] != '\r' && data[j] != '\n')
+				cmd[k] = data[j];
+
+			break;
+		}
+
+		cmd[k] = '\0';
+
+		process_command(cmd);
+
+		/* Can we reduce this loop ? */
+		for (i = j ; i < bytes_read; i++) {
+			if (data[i] == '\r' || data[i] == '\n')
+				continue;
+
+			break;
+		}
+		total_bytes -= i;
 	}
-
-#if 0
-	if (!is_valid_command(data, bytes_read)) {
-		l_debug("data received is not a valid command");
-	}
-#endif
-
-	process_command(cmd, bytes_read);
 }
+
+#ifdef UNIT_TEST
+
+int main(void)
+{
+	char data1[] = {'\r', 'A', 'T', '\r', '\n', 'O', 'K', '\r', '\n'};
+	handle_recv_data(data1, sizeof(data1)/sizeof(data1[0]));
+
+	char *data2 = "\r\nAT+BRSF\rATA\nOK\r\n\r\n"
+
+	handle_recv_data(, sizeof(data1)/sizeof(data1[0]));
+
+}
+
+#endif

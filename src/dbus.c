@@ -1,6 +1,5 @@
 /*
  * dbus.c
- * Copyright (C) 2015-2016 Ooma Incorporated. All rights reserved.
  */
 
 #include "main.h"

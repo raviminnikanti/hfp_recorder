@@ -4,8 +4,6 @@
 
 #include "main.h"
 
-#define MAX_BUF_SIZE	256
-
 static void io_disconnect_callback(struct l_io *io, void *user_data)
 {
 	l_info("socket disconnected");
@@ -16,11 +14,11 @@ static void io_disconnect_callback(struct l_io *io, void *user_data)
  */
 static bool io_read_callback(struct l_io *io, void *user_data)
 {
-	char buffer[MAX_BUF_SIZE];
+	char buffer[MAX_DATA_BUF_SIZE];
 	int fd = l_io_get_fd(io);
 	ssize_t bytes_read;
 
-	bytes_read = read(fd, buffer, MAX_BUF_SIZE);
+	bytes_read = read(fd, buffer, MAX_DATA_BUF_SIZE);
 	if (bytes_read < 0) {
 		l_error("socket read error: %s", strerror(errno));
 		return false;
