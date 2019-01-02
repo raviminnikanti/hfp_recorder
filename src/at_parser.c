@@ -5,8 +5,7 @@
 
 #include "main.h"
 
-typedef void (*cmd_handler)(const char *cmd);
-
+typedef void (*cmd_handler)(const char *cmd, int index);
 
 #define INRANGE(X, Y, Z)	(X >= Y && X <= Z)
 
@@ -15,7 +14,9 @@ typedef void (*cmd_handler)(const char *cmd);
  * bit map of HF BRSF supported features
  */
 
-// Don't un-comment these #define's. They overlap with +BRSF #define's.
+/* Don't un-comment these #define's. These are just for reference.
+ * They overlap with +BRSF #define's.
+ */
 #define EC_NR_FUNCTION			(1<<0)
 #define THREE_WAY_CALLING		(1<<1)
 #define CLI_CAPABILITY			(1<<2)
@@ -31,27 +32,43 @@ typedef void (*cmd_handler)(const char *cmd);
 #define IS_FEATURES_SUPPORTED(X, Y)		(X & Y)
 
 
-/* Read command ex: AT+CIND?
+/*
+ * Read command ex: AT+CIND?
  * Query command ex: AT+CIND=?
- *
  */
 
 enum at_cmds {
-	OK,
+	OK = 0,
+	ERROR,
 	AT_BRSF,
 	BRSF,
-	AT_BAC
+	AT_CIND_Q,
+	CIND,
+	AT_CIND_R,
+	AT_CMER,
+	CIEV,
+	AT_BIND,
+	AT_BIND_Q,
+	AT_BIND_R,
+	BIND,
+	AT_BIEV,
+	ATA,
+	RING,
+	AT_CHUP,
+	CLIP,
 };
 
 const char *str_cmds[] = {
 		"OK",
-		"AT+BRSF",
-		"+BRSF",
-		"AT+BAC"	// notify AG of the available codecs in HF. in-case both HF and AG support codec negotiation feature.
+		"ERROR",
+		"AT+BRSF=",
+		"+BRSF:",
 		"AT+CIND=?"	// retrieve info about supported AG indicators and their ordering.
+		"+CIND"
 		"AT+CIND?"	// get the current status of the AG supported indicators.
-		"AT+CMER"
+		"AT+CMER="
 		"+CIEV"
+		"AT+BAC"	// notify AG of the available codecs in HF. in-case both HF and AG support codec negotiation feature.
 		"AT+BIND="
 		"AT+BIND=?"	// request from HF to get the supported indicators supported by AG, in-case HF and AG support HF indicators.
 		"AT+BIND?"	// request from HF to get the current enabled HF indicators on AG.
@@ -65,21 +82,20 @@ const char *str_cmds[] = {
 };
 
 struct cmd_struct {
-	enum at_cmds cmd_t;
 	cmd_handler handler_callback;
+};
+
+struct _connection {
+	char *last_cmd;
+	/* Indicator indexes */
+	int service_index;
+	int call_index;
+	int callsetup_index;
 };
 
 /* HFP 1.7 - 4 Hands-Free Control Interoperability Requirements
  * documents the complete HF connection establishment procedure.
  */
-
-static inline bool is_escape_character(char c)
-{
-	if (c == 10 || c == 13 || c == 32)
-		return true;
-
-	return false;
-}
 
 /* arg passed to this function should be string. */
 bool send_command(const char *cmd)
@@ -98,23 +114,86 @@ bool send_command(const char *cmd)
 	return true;
 }
 
-enum at_cmds str_to_enum_type(const char *cmd)
+static int get_cmd_index(const char *cmd)
 {
-	int i;
+	int i, j;
+	int len = strlen(cmd);
+
+	for (i = 0; i < len; i++) {
+		if (cmd[i] == '?' || cmd[i] == '=' || cmd[i] == ':' )
+			break;
+	}
 
 	int cmd_count = sizeof(str_cmds)/sizeof(str_cmds[0]);
 
-	for (i = 0; i < cmd_count; i++) {
-		if (strcmp(str_cmds[i], cmd) == 0)
+	for (j = 0; j < cmd_count; j++) {
+		if (strncmp(str_cmds[j], cmd, i) == 0)
 			break;
 	}
 
 	/* we expect that the cmd will be always a known command. */
-	return i;
+	return j;
 }
 
-void handle_brsf_response(const char *cmd)
+static char *get_cmd_value(const char *cmd)
 {
+	char *tmp;
+	/* Assert on a coding errors. */
+	assert(!cmd || *cmd == '\0');
+
+	tmp = strchr_multi_byte(cmd, ":?=");
+	if (!tmp || strlen(tmp) <= 1)
+		return NULL;
+
+	return (tmp + 1);
+}
+
+/*
+ * CIND query response format: +CIND: ("service",(0-1)),("callsetup",(0-3))
+ */
+static void cind_query_response(char *value)
+{
+	char *tmp;
+	const char *service = "\"service\"", *callsetup = "\"callsetup\"";
+//	const char *call = "\"call\"", *signal = "\"signal\"";
+
+	util_strstrip(value);
+	tmp = value;
+
+	while (*tmp != '\0') {
+		if (!strncmp(tmp, service, 9)) {
+			tmp += 9;
+		} else if (!strncmp(tmp, callsetup, 11)) {
+			tmp += 11;
+		}
+	}
+}
+
+static void cind_read_response(const char *value)
+{
+	;
+}
+
+void handle_cind_response(const char *cmd, int index)
+{
+	char *value;
+
+	value = get_cmd_value(cmd);
+	if (!value){
+		l_error("Invalid CIND response %s", cmd);
+		return;
+	}
+
+	if (strchr(value, '('))
+		cind_query_response(value);
+	else
+		cind_read_response(value);
+}
+
+void handle_brsf_response(const char *cmd, int index)
+{
+	char *value, *end = NULL;
+	int features;
 
 // HFP 1.7 AG supported features.
 #define THREE_WAY_CALLING		(0<<1)
@@ -129,13 +208,17 @@ void handle_brsf_response(const char *cmd)
 #define CODEC_NEGOTIATION		(1<<9)
 #define HF_INDICATORS			(1<<10)
 
-	char *tmp = strchr(cmd, ':');
-	if (!tmp) {
-		l_error("Invalid BRSF response");
+	value = get_cmd_value(cmd);
+	if (!value) {
+		l_error("Invalid BRSF response %s", cmd);
 		return;
 	}
 
-	int features = atoi(tmp + 1);
+	features = strtoul(value, &end, 10);
+	if (end != NULL) {
+		l_error("Invalid BRSF response %s", cmd);
+		return;
+	}
 
 	l_info("features supported by AG:");
 
@@ -161,14 +244,45 @@ void handle_brsf_response(const char *cmd)
 			l_info("Codec negotiation supported");
 	if (IS_FEATURES_SUPPORTED(features, HF_INDICATORS))
 				l_info("HF indicators supported");
+
+	send_command(str_cmds[OK]);
+	send_command(str_cmds[AT_CIND_Q]);
 }
 
-void handle_brsf_cmd(const char *cmd)
+void handle_brsf_cmd(const char *cmd, int index)
 {
+	char *value;
+
+	if (!cmd) {
+		value = l_strdup_printf("%s%d", str_cmds[AT_BRSF], SUPPORTED_FEATURES);
+		send_command(value);
+		free(value);
+		return;
+	}
+
+	/*
+	 * HF device never receive AT+BRSF command.
+	 */
+	value = get_cmd_value(cmd);
+	if (!value) {
+		l_error("Error in BRSF response %s", cmd);
+		return;
+	}
+
+	util_strstrip(value);
+	l_info("BRSF command supported features %s", value);
+}
+
+void handle_ok_response(const char *cmd, int index)
+{
+	if (!cmd) {
+		send_command(str_cmds[OK]);
+		return;
+	}
 	;
 }
 
-void handle_ok_response(const char *cmd)
+void handle_error_response(const char *cmd, int index)
 {
 	;
 }
@@ -177,9 +291,12 @@ void handle_ok_response(const char *cmd)
  * characters.
  */
 struct cmd_struct cmd_handle[] = {
-		{ OK,			handle_ok_response },
-		{ AT_BRSF,		handle_brsf_cmd },
-		{ BRSF,			handle_brsf_response },
+		{ handle_ok_response },
+		{ handle_error_response },
+		{ handle_brsf_cmd },
+		{ handle_brsf_response },
+		{ NULL },
+		{ handle_cind_response },
 };
 
 void init_connection(void)
@@ -194,7 +311,7 @@ void init_connection(void)
 static void process_command(const char *data)
 {
 	char *cmd;
-	int len;
+	int len, index;
 
 	if (!data || strlen(data) < 2) {
 		l_debug("Invalid AT command");
@@ -202,17 +319,17 @@ static void process_command(const char *data)
 	}
 
 	cmd = l_strdup(data);
-	enum at_cmds cmd_type = str_to_enum_type(cmd);
+	index = get_cmd_index(cmd);
 	free(cmd);
 
 	len = sizeof(cmd_handle)/sizeof(cmd_handle[0]);
 
-	if (!INRANGE(cmd_type, 0, len - 1)) {
+	if (!INRANGE(index, 0, len - 1)) {
 		l_debug("Unknown command %s", cmd);
 		return;
 	}
 
-	cmd_handle[cmd_type].handler_callback(data);
+	cmd_handle[index].handler_callback(data, index);
 }
 
 void handle_recv_data(char *data, int bytes_read)

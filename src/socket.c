@@ -3,6 +3,7 @@
  */
 
 #include "main.h"
+#include "at_parser.h"
 
 struct remote_connection {
 	char *last_cmd;
@@ -31,6 +32,8 @@ static bool io_read_callback(struct l_io *io, void *user_data)
 		l_error("socket read error: %s", strerror(errno));
 		return false;
 	}
+
+	handle_recv_data(buffer, bytes_read);
 
 	return true;
 }
