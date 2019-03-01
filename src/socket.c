@@ -54,6 +54,7 @@ void new_rfcomm_connection(int sock)
 	l_io_set_close_on_destroy(io, true);
 	l_io_set_read_handler(io, io_read_callback, NULL, NULL);
 	l_io_set_disconnect_handler(io, io_disconnect_callback, NULL, NULL);
+	init_connection();
 	conn.io = io;
 }
 

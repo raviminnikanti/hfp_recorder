@@ -55,6 +55,7 @@ enum at_cmds {
 	ATA,
 	RING,
 	AT_CHUP,
+	AT_CLIP,
 	CLIP,
 };
 
@@ -77,7 +78,8 @@ const char *str_cmds[] = {
 
 		"ATA"	// standard call answer AT command.
 		"RING"
-		"AT+CHUP"
+		"AT+CHUP="
+		"AT+CLIP="
 		"+CLIP:"	// +CLIP: <number>, 128-143 or +CLIP: <number>, 144-159 or +CLIP: <number>, 160-175
 };
 
@@ -86,12 +88,17 @@ struct cmd_struct {
 };
 
 struct _connection {
-	char *last_cmd;
+	enum at_cmds last_cmd;
 	/* Indicator indexes */
 	int service_index;
 	int call_index;
 	int callsetup_index;
+	int signal_index;
+	int ring_count;
+	char *incoming_callid;
 };
+
+struct _connection connection;
 
 /* HFP 1.7 - 4 Hands-Free Control Interoperability Requirements
  * documents the complete HF connection establishment procedure.
@@ -148,6 +155,67 @@ static char *get_cmd_value(const char *cmd)
 	return (tmp + 1);
 }
 
+void handle_clip_events(const char *cmd, int index)
+{
+	char *value = get_cmd_value(cmd);
+	util_charstrip(value, '"');
+	util_strstrip(value);
+	connection.incoming_callid = strdup(value);
+	l_info("Incoming caller id is: %s", connection.incoming_callid);
+}
+
+void handle_ring_events(const char *cmd, int index)
+{
+	++connection.ring_count;
+	if (connection.ring_count >= 3) {
+		l_info("Received more than 3 rings. Accepting call from caller id: %s", connection.incoming_callid);
+		connection.ring_count = 0;
+		send_command(str_cmds[ATA]);
+		connection.last_cmd = ATA;
+	}
+}
+
+void handle_ciev_events(const char *cmd, int index)
+{
+	char *indicator, *end = NULL;
+	unsigned long ind_index = 1, ind_value;
+	char *value = get_cmd_value(cmd);
+	indicator = strtok(value, ",");
+	ind_value = strtoul(indicator, &end, 10);
+	if (end && *end) {
+		l_error("%s Failed processing +CIEV event. Unknown command: %s", __func__, cmd);
+		goto failed;
+	}
+
+	while(1) {
+		indicator = strtok(NULL, ",");
+		if (!indicator) { break; }
+		ind_value = strtoul(indicator, &end, 10);
+		if (ind_index == connection.service_index) {
+			ind_value ? l_info("Service connection is available now") : l_info("Lost service connection");
+			break;
+		} else if (ind_index == connection.callsetup_index) {
+			if (ind_value == 0) {
+				l_info("Call set up is done");
+			} else if (ind_value == 1) {
+				l_info("An incoming call progress is ongoing");
+			} else if (ind_value == 2) {
+				l_info("An outgoing call set up is ongoing");
+			} else if (ind_value == 3) {
+				l_info("Remote party is being alerted in an outgoing call");
+			}
+		} else if(ind_index == connection.call_index) {
+			ind_value ? l_info("Call is active now") : l_info("No active call is in progress");
+		}
+		++ind_index;
+	}
+
+	send_command(str_cmds[OK]);
+	return;
+failed:
+	send_command(str_cmds[ERROR]);
+}
+
 /*
  * CIND query response format: +CIND: ("service",(0-1)),("callsetup",(0-3))
  */
@@ -155,23 +223,114 @@ static void cind_query_response(char *value)
 {
 	char *tmp;
 	const char *service = "\"service\"", *callsetup = "\"callsetup\"";
-//	const char *call = "\"call\"", *signal = "\"signal\"";
+	const char *call = "\"call\"", *signal = "\"signal\"";
+	int index = 1;
 
 	util_strstrip(value);
 	tmp = value;
 
 	while (*tmp != '\0') {
+		tmp = strchr(tmp, '(');
+		if (!tmp) {
+			l_error("Invalid CIND query response %s\n", value);
+			goto failed;
+		}
+		++tmp;
 		if (!strncmp(tmp, service, 9)) {
-			tmp += 9;
+			connection.service_index = index;
 		} else if (!strncmp(tmp, callsetup, 11)) {
-			tmp += 11;
+			connection.callsetup_index = index;
+		} else if (!strncmp(tmp, call, 6)) {
+			connection.call_index = index;
+		} else if (!strncmp(tmp, signal, 8)) {
+			connection.signal_index = index;
+		}
+
+		if ((tmp = strchr(tmp, ')')) && (tmp = strchr(tmp, ')'))) {
+			++tmp;
+			++index;
+		} else {
+			l_error("Misformed CIND query response %s\n", value);
+			goto failed;
 		}
 	}
+
+	l_info("service index: %d, callsetup index: %d, call index: %d\n",
+			connection.service_index, connection.callsetup_index, connection.call_index);
+
+	send_command(str_cmds[OK]);
+	send_command(str_cmds[AT_CIND_R]);
+	connection.last_cmd = AT_CIND_R;
+	return;
+
+failed:
+	send_command(str_cmds[ERROR]);
 }
 
-static void cind_read_response(const char *value)
+/* service:
+<value>=0 implies no service. No Home/Roam network available.
+<value>=1 implies presence of service. Home/Roam network available.
+call: Standard call status indicator
+<value>=0 means no call active.
+<value>=1 means a call is active.
+callsetup: When supported, this indicator shall be used in conjunction with, and as an extension of the standard call indicator.
+<value>=0 means not currently in call set up.
+<value>=1 means an incoming call process ongoing.
+<value>=2 means an outgoing call set up is ongoing.
+<value>=3 means remote party being alerted in an outgoing call. */
+static void cind_read_response(char *value)
 {
-	;
+	char *indicator, *end = NULL;
+	unsigned long i, ind_value;
+	char *cmd;
+	if (!value || *value == '\0') {
+
+		goto failed;
+	}
+
+	util_strstrip(value);
+	indicator = strtok(value, ",");
+	for (i = 1; ; i++) {
+		ind_value = strtoul(indicator, &end, 10);
+		if (end && *end)
+			goto failed;
+
+		if (i == connection.service_index) {
+			if (ind_value)
+				l_info("Home/Roam network service is available");
+			else
+				l_info("No Home/Roam network service is available");
+		} else if (i == connection.call_index) {
+			if (ind_value)
+				l_info("Active call is already in-progress");
+			else
+				l_info("No active call is in progress");
+		} else if (i == connection.callsetup_index) {
+			if (ind_value == 0)
+				l_info("No current call set up is in progress");
+			else if (ind_value == 1)
+				l_info("An incoming call progress is ongoing");
+			else if (ind_value == 2)
+				l_info("An outgoing call set up is ongoing");
+			else if (ind_value == 3)
+				l_info("Remote party is being alerted in an outgoing call");
+		}
+
+		indicator = strtok(NULL, ",");
+		if (!indicator)
+			break;
+	}
+
+	send_command(str_cmds[OK]);
+	/* AT+CMER=3,0,0,1 - Command to enable "indicator events reporting".
+	 * AT+CMER=3,0,0,0 - To disable "indicator event reporting".
+	 */
+	cmd = l_strdup_printf("%s%s", str_cmds[AT_CMER], "3,0,0,1");
+	send_command(cmd);
+	l_free(cmd);
+	connection.last_cmd = AT_CMER;
+failed:
+	send_command(str_cmds[ERROR]);
 }
 
 void handle_cind_response(const char *cmd, int index)
@@ -192,7 +351,7 @@ void handle_cind_response(const char *cmd, int index)
 
 void handle_brsf_response(const char *cmd, int index)
 {
-	char *value, *end = NULL;
+	char *value, *end;
 	int features;
 
 // HFP 1.7 AG supported features.
@@ -215,7 +374,7 @@ void handle_brsf_response(const char *cmd, int index)
 	}
 
 	features = strtoul(value, &end, 10);
-	if (end != NULL) {
+	if (end && *end) {
 		l_error("Invalid BRSF response %s", cmd);
 		return;
 	}
@@ -237,16 +396,17 @@ void handle_brsf_response(const char *cmd, int index)
 	if (IS_FEATURES_SUPPORTED(features, ENHANCED_CALL_STATUS))
 		l_info("Enhanced call status supported");
 	if (IS_FEATURES_SUPPORTED(features, ENHANCED_CALL_CONTROL))
-			l_info("Enhanced call control supported");
+		l_info("Enhanced call control supported");
 	if (IS_FEATURES_SUPPORTED(features, EXTENDED_ERROR_RESULTS))
-			l_info("Extended error results supported");
+		l_info("Extended error results supported");
 	if (IS_FEATURES_SUPPORTED(features, CODEC_NEGOTIATION))
-			l_info("Codec negotiation supported");
+		l_info("Codec negotiation supported");
 	if (IS_FEATURES_SUPPORTED(features, HF_INDICATORS))
-				l_info("HF indicators supported");
+		l_info("HF indicators supported");
 
 	send_command(str_cmds[OK]);
 	send_command(str_cmds[AT_CIND_Q]);
+	connection.last_cmd = AT_CIND_Q;
 }
 
 void handle_brsf_cmd(const char *cmd, int index)
@@ -260,9 +420,7 @@ void handle_brsf_cmd(const char *cmd, int index)
 		return;
 	}
 
-	/*
-	 * HF device never receive AT+BRSF command.
-	 */
+	/* HF device never receive AT+BRSF command. */
 	value = get_cmd_value(cmd);
 	if (!value) {
 		l_error("Error in BRSF response %s", cmd);
@@ -275,16 +433,23 @@ void handle_brsf_cmd(const char *cmd, int index)
 
 void handle_ok_response(const char *cmd, int index)
 {
-	if (!cmd) {
-		send_command(str_cmds[OK]);
-		return;
+	char *str;
+	if (connection.last_cmd == AT_CMER) {
+		/* Enable Caller Line Identification. */
+		str = l_strdup_printf("%s%d", str_cmds[AT_CLIP], 1);
+		send_command(str);
+		l_free(str);
+		connection.last_cmd = AT_CLIP;
 	}
-	;
 }
 
 void handle_error_response(const char *cmd, int index)
 {
-	;
+	if (connection.last_cmd == ATA) {
+		l_error("Attending incoming call failed");
+	} else {
+		l_error("Command failed: %s", str_cmds[connection.last_cmd]);
+	}
 }
 
 /* callback methods don't expect escape character in leading and trailing
@@ -297,15 +462,28 @@ struct cmd_struct cmd_handle[] = {
 		{ handle_brsf_response },
 		{ NULL },
 		{ handle_cind_response },
+		{ NULL },
+		{ NULL },
+		{ handle_ciev_events },
+		{ NULL },
+		{ NULL },
+		{ NULL },
+		{ NULL },
+		{ NULL },
+		{ NULL },
+		{ NULL },
+		{ handle_ring_events },
+		{ NULL },
+		{ NULL },
+		{ handle_clip_events },
 };
 
 void init_connection(void)
 {
-	struct l_string *str = l_string_new(16);
-	l_string_append_printf(str, "%s=%d", str_cmds[AT_BRSF], SUPPORTED_FEATURES);
-	char *cmd = l_string_unwrap(str);
-	send_command(cmd);
-	l_free(cmd);
+	char *value;
+	value = l_strdup_printf("%s%d", str_cmds[AT_BRSF], SUPPORTED_FEATURES);
+	send_command(value);
+	l_free(value);
 }
 
 static void process_command(const char *data)

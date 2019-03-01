@@ -9,7 +9,7 @@
  * @str: String that contains delimiter characters
  * @delim: String with has delimiter characters
  *
- * This function is similiar to string library function strchr,
+ * This function is similar to string library function strchr,
  * but it works on multiple delimiter functions.
  *
  * @Returns: Address of any of first delimiter character found.
@@ -75,7 +75,7 @@ void util_strstrip(char *str)
 {
 	int i = 0, j = 0;
 	int len = strlen(str);
-
+	/* Linux kernel banned use of variable length arrays in kernel code.*/
 	char temp[len];
 	memset(temp, 0, len);
 
@@ -90,5 +90,23 @@ void util_strstrip(char *str)
 
 	*(temp + j) = '\0';
 	memcpy(str, temp, j + 1);
-	return;
+}
+
+void util_charstrip(char *str, int c)
+{
+	int i = 0 , j = 0;
+	int len = strlen(str);
+	char temp[len];
+	memset(temp, 0, len);
+
+	while (*(str + i) != '\0') {
+		if (*(str + i) != c) {
+			*(temp + j) = *(str + i);
+			++j;
+		}
+		++i;
+	}
+
+	*(temp + j) = '\0';
+	memcpy(str, temp, j + 1);
 }
